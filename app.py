@@ -105,11 +105,11 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ---------- 读取 API Key ----------
-if "DEEPSEEK_API_KEY" not in st.secrets:
-    st.error("请在 Streamlit Cloud 的 Settings → Secrets 中添加 DEEPSEEK_API_KEY")
+if "OPENAI_API_KEY" not in st.secrets:
+    st.error("请在 Streamlit Cloud 的 Settings → Secrets 中添加 OPENAI_API_KEY")
     st.stop()
-api_key = st.secrets["DEEPSEEK_API_KEY"]
-client = OpenAI(api_key=api_key, base_url="https://api.deepseek.com")
+api_key = st.secrets["OPENAI_API_KEY"]
+client = OpenAI(api_key=api_key)  # 默认 base_url 就是 OpenAI 官方
 
 # ---------- 工具函数 ----------
 def analyze_personality(text):
@@ -129,7 +129,7 @@ def analyze_personality(text):
   "神经质": {"score": 4, "reason": "..."}
 }"""
     response = client.chat.completions.create(
-        model="deepseek-chat",
+        model="gpt-3.5-turbo",  # 或 "gpt-4o-mini"
         messages=[
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": f"文本：{text}"}
@@ -168,7 +168,7 @@ def draw_radar(scores):
 
 # ---------- 会话状态 ----------
 if "messages" not in st.session_state:
-    st.session_state.messages = []          # 对话历史
+    st.session_state.messages = []
 if "analysis_done" not in st.session_state:
     st.session_state.analysis_done = False
 if "result" not in st.session_state:
@@ -179,25 +179,21 @@ st.markdown('<div class="main-card">', unsafe_allow_html=True)
 st.markdown('<div class="title-text">🧠 文以辨心</div>', unsafe_allow_html=True)
 st.markdown('<div class="subtitle-text">AI · 心理学 — 用文字看清你的性格轮廓</div>', unsafe_allow_html=True)
 
-# 模式选择（对话 / 直接分析）
 mode = st.radio("选择模式", ["💬 对话引导（AI会提问，慢慢了解你）", "⚡ 直接分析（输入一段文字即可）"], horizontal=True)
 
 if "对话" in mode:
     # -------- 对话模式 --------
-    # 显示历史消息
     for msg in st.session_state.messages:
         if msg["role"] == "user":
             st.markdown(f'<div class="chat-bubble user-bubble">{msg["content"]}</div>', unsafe_allow_html=True)
         else:
             st.markdown(f'<div class="chat-bubble ai-bubble">{msg["content"]}</div>', unsafe_allow_html=True)
 
-    # 第一次进入时，AI 先打招呼
     if not st.session_state.messages:
         greeting = "嗨！我想更了解你。随便说点什么吧，比如最近的心情、让你开心或烦恼的事…"
         st.session_state.messages.append({"role": "ai", "content": greeting})
         st.rerun()
 
-    # 用户输入框
     with st.form(key="chat_form", clear_on_submit=True):
         user_input = st.text_area("你的回答", placeholder="在这里打字…", height=80, label_visibility="collapsed")
         col1, col2 = st.columns([3, 1])
@@ -208,10 +204,9 @@ if "对话" in mode:
 
     if send_btn and user_input:
         st.session_state.messages.append({"role": "user", "content": user_input})
-        # AI 生成回应（引导继续对话）
         convo_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
         follow_up = client.chat.completions.create(
-            model="deepseek-chat",
+            model="gpt-3.5-turbo",
             messages=[
                 {"role": "system", "content": "你是一个温暖、善于倾听的心理学对话伙伴。基于用户的回答，提出一个简短、开放性的问题，引导ta说出更多内心想法。问题不要超过两句话，语气像朋友聊天。"},
                 {"role": "user", "content": f"对话记录：\n{convo_text}\n\n请提出一个后续问题，鼓励用户继续分享。"}
@@ -223,7 +218,6 @@ if "对话" in mode:
         st.rerun()
 
     if analyze_chat_btn:
-        # 拼接全部对话用于分析
         full_text = "\n".join([f"{m['role']}: {m['content']}" for m in st.session_state.messages])
         if len(full_text) < 20:
             st.warning("对话内容太少，再多聊两句吧～")
@@ -250,7 +244,7 @@ else:
                 st.session_state.analysis_done = True
                 st.rerun()
 
-# ---------- 显示分析结果（两个模式共用） ----------
+# ---------- 显示分析结果 ----------
 if st.session_state.analysis_done and st.session_state.result:
     data = st.session_state.result
     st.success("分析完成！")
@@ -269,13 +263,10 @@ if st.session_state.analysis_done and st.session_state.result:
         mime="application/json"
     )
 
-    # 重置按钮，允许再测一次
     if st.button("🔄 重新开始"):
         st.session_state.messages = []
         st.session_state.analysis_done = False
         st.session_state.result = None
         st.rerun()
-
-st.markdown('</div>', unsafe_allow_html=True)
 
 st.markdown('</div>', unsafe_allow_html=True)

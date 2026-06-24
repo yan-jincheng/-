@@ -29,22 +29,37 @@ def save_history(history):
     except Exception as e:
         st.warning(f"数据持久化存储失败: {str(e)}")
 
-# ---------- 页面基本配置 ----------
-st.set_page_config(page_title="文以辨心", page_icon="🧠", layout="centered", initial_sidebar_state="collapsed")
-
-# ---------- 中文/多语言字体智能回退 ----------
-def get_chinese_font():
+# ---------- 核心纠错：彻底解决中文字体方块问题 ----------
+def check_chinese_font():
+    """检查环境是否存在可用的中文字体"""
     font_names = ['PingFang SC', 'Microsoft YaHei', 'SimHei', 'Arial Unicode MS', 'WenQuanYi Micro Hei', 'Noto Sans CJK SC']
     for font in font_names:
         try:
             if fm.findfont(font):
-                return font
+                return True
         except:
             continue
-    return 'sans-serif'
+    return False
 
-plt.rcParams['font.sans-serif'] = [get_chinese_font()]
+# 设定全局字体标志和 matplotlib 配置
+FONT_AVAILABLE = check_chinese_font()
+if FONT_AVAILABLE:
+    plt.rcParams['font.sans-serif'] = ['PingFang SC', 'Microsoft YaHei', 'SimHei']
+else:
+    plt.rcParams['font.sans-serif'] = ['DejaVu Sans', 'Arial']
 plt.rcParams['axes.unicode_minus'] = False
+
+# 中英文标签映射表（当找不到中文字体时，直接替换为心理学英文术语）
+LABEL_MAP_CN_TO_EN = {
+    "开放心态": "Openness",
+    "认真负责": "Conscientiousness",
+    "社交外向": "Extraversion",
+    "同理合作": "Agreeableness",
+    "情绪稳定": "Emotional Stability"
+}
+
+# ---------- 页面基本配置 ----------
+st.set_page_config(page_title="文以辨心", page_icon="🧠", layout="centered", initial_sidebar_state="collapsed")
 
 # ---------- Apple 风格 CSS ----------
 st.markdown("""
@@ -139,13 +154,6 @@ def summarize_text(text):
 
 # ---------- 心理学图谱转换 (大五人格 -> MBTI) ----------
 def compute_mbti_from_big5(big5):
-    """
-    通用心理学近似映射关系：
-    外向型(E) ← 社交外向
-    直觉型(N) ← 开放心态
-    情感型(F) ← 同理合作
-    判断型(J) ← 认真负责
-    """
     mbti_map = {}
     scores = {
         "E": big5["社交外向"]["score"],
@@ -154,35 +162,18 @@ def compute_mbti_from_big5(big5):
         "J": big5["认真负责"]["score"]
     }
     
-    # 计算每一对的中值
     mbti_letters = []
     for trait, score in scores.items():
         mbti_map[trait] = score
-        # 反向字母得分：I = 10 - E, S = 10 - N 等
         opposite_trait = {"E": "I", "N": "S", "F": "T", "J": "P"}[trait]
         mbti_map[opposite_trait] = 10 - score
-        
-        # 判定字母
         mbti_letters.append(trait if score >= 5 else opposite_trait)
     
     mbti_type = "".join(mbti_letters)
     return mbti_type, mbti_map
 
-# ---------- 全新绘图表 (改为了 MBTI 四极雷达 + 大五条形图) ----------
+# ---------- 崭新图绘制 (绝对杜绝方块与杂乱线) ----------
 def draw_mbti_radar(mbti_map, mbti_type):
-    """绘制 MBTI 倾向性 4极雷达图 (代替原5角雷达)"""
-    # 轴名顺序：E-I, N-S, F-T, J-P
-    axes = ['E/I', 'N/S', 'F/T', 'J/P']
-    # 取对应两端的分数，一端是正分，另一端是反分
-    # 为了绘制四极，我们分别取 E,I,N,S,F,T,J,P 投射到0-10
-    # 这里我们将 4 个轴分别画成 0-10 的 4 条线，0在中心，10在外围
-    # 为了让图形有意义，直接绘制 4 条线。
-    # 现在改为画一个 4象限雷达图（4 条轴伸出去）
-    # 每条轴的两端分别代表两个字母。例如 E(0-10) 和 I(0-10)。
-    
-    # 为了标准化四极显示，取 4 条轴，评分 0-10。0 代表一边，10 代表另一边。
-    # 这里我们采用“两极单轴”法，即 E/I 共用一根 0-10 的轴，0 代表 I，10 代表 E。
-    # 所以值 = 0.5 * (E - I) + 5. 如果 E = 8, I=2, 得分 = 5 + 3 = 8 (偏向E)
     dims = {
         "E/I": 5 + (mbti_map["E"] - mbti_map["I"]) / 2,
         "N/S": 5 + (mbti_map["N"] - mbti_map["S"]) / 2,
@@ -201,64 +192,53 @@ def draw_mbti_radar(mbti_map, mbti_type):
     fig.patch.set_facecolor('#f5f5f7')
     ax.set_facecolor('#fafafa')
 
-    # 颜色改为 MBTI 对应的科技渐变紫/蓝
-    color = '#8B5CF6'  # 紫色
+    color = '#8B5CF6'
     ax.fill(angles, values, color=color, alpha=0.25)
     ax.plot(angles, values, color=color, linewidth=3.5, marker='D', markersize=8,
             markerfacecolor='white', markeredgecolor=color, markeredgewidth=2.5)
 
+    # 核心修复：去除 45°、90° 等杂乱的度数网格线，只保留同心圆
     ax.set_ylim(0, 10)
     ax.set_rticks([2, 5, 8])
     ax.set_rlabel_position(45)
-    ax.grid(True, linestyle='--', color='#d1d1d6', linewidth=1, alpha=0.8)
+    ax.set_xticks([]) # 移除 0°, 45° 等所有角度线
+    ax.set_xticklabels([])
+    
+    # 重置网格（只保留同心圆环）
+    ax.grid(True, axis='y', linestyle='--', color='#d1d1d6', linewidth=1, alpha=0.8)
     ax.spines['polar'].set_visible(False)
 
-    # 在极坐标绘图时，注意文字位置，并支持英文替换
-    current_font = plt.rcParams['font.sans-serif'][0]
+    # 手动放置极轴外面的标签
     for label, angle in zip(labels, angles[:-1]):
         rotation = np.rad2deg(angle)
         if 90 <= rotation <= 270: ha = 'right'
         else: ha = 'left'
         if 0 <= rotation <= 180: va = 'bottom'
         else: va = 'top'
-        
-        if current_font == 'sans-serif':
-            # 如果无中文字体，自动翻译为英文
-            en_label = {"E/I": "Extraversion", "N/S": "Intuition", "F/T": "Feeling", "J/P": "Judging"}
-            display_label = en_label.get(label, label)
-        else:
-            display_label = label
 
-        ax.text(angle, 10.8, display_label, ha=ha, va=va, 
+        ax.text(angle, 11.2, label, ha=ha, va=va, 
                 fontsize=12, fontweight='600', color='#4C1D95')
 
-    # 中间显示 MBTI 类型
-    ax.text(0, 0, mbti_type, fontsize=28, fontweight='900', color='#5B21B6',
-            ha='center', va='center')
+    ax.text(0, 0, mbti_type, fontsize=28, fontweight='900', color='#5B21B6', ha='center', va='center')
     return fig
 
 def draw_big5_bar(big5):
-    """绘制大五人格的水平条形图（替换掉原来的雷达图）"""
     labels = list(big5.keys())
     values = [big5[k]["score"] for k in labels]
+
+    # 核心修复：如果系统无法渲染中文字体，强制将轴标签替换为英文术语，彻底杜绝方块
+    if not FONT_AVAILABLE:
+        display_labels = [LABEL_MAP_CN_TO_EN.get(l, l) for l in labels]
+    else:
+        display_labels = labels
 
     fig, ax = plt.subplots(figsize=(6, 3.5))
     fig.patch.set_facecolor('#f5f5f7')
     ax.set_facecolor('#f8f8fa')
     
-    # 绘制黑色底、霓虹蓝的酷炫条形
-    y_pos = np.arange(len(labels))
-    bars = ax.barh(y_pos, values, height=0.6, color='#0071e3', edgecolor='white', linewidth=1.5)
+    bars = ax.barh(range(len(labels)), values, height=0.6, color='#0071e3', edgecolor='white', linewidth=1.5)
     
-    ax.set_yticks(y_pos)
-    current_font = plt.rcParams['font.sans-serif'][0]
-    if current_font == 'sans-serif':
-        en_labels = {"开放心态": "Openness", "认真负责": "Conscientiousness", "社交外向": "Extraversion", 
-                     "同理合作": "Agreeableness", "情绪稳定": "Emotional Stability"}
-        display_labels = [en_labels.get(l, l) for l in labels]
-    else:
-        display_labels = labels
-
+    ax.set_yticks(range(len(labels)))
     ax.set_yticklabels(display_labels, fontsize=11, fontweight='500')
     ax.set_xlim(0, 10)
     ax.set_xticks([2,4,6,8,10])
@@ -269,7 +249,6 @@ def draw_big5_bar(big5):
     ax.spines['left'].set_color('#DDD')
     ax.grid(axis='x', linestyle='--', alpha=0.3)
 
-    # 在条形末尾添加数值
     for bar, val in zip(bars, values):
         ax.text(val + 0.2, bar.get_y() + bar.get_height()/2, 
                 f"{val}", va='center', ha='left', fontsize=12, fontweight='bold', color='#1d1d1f')
@@ -278,13 +257,10 @@ def draw_big5_bar(big5):
     return fig
 
 def generate_card(big5, mbti_type, mbti_map):
-    """生成分享卡片：组合了新的雷达图和条形图"""
     fig = plt.figure(figsize=(10, 5))
     fig.patch.set_facecolor('#f5f5f7')
     
-    # 左侧画 MBTI 雷达图
     ax1 = fig.add_subplot(1, 2, 1, projection='polar')
-    # 重新构建 MBTI 绘图逻辑以适配单个子图
     dims = {
         "E/I": 5 + (mbti_map["E"] - mbti_map["I"]) / 2,
         "N/S": 5 + (mbti_map["N"] - mbti_map["S"]) / 2,
@@ -298,13 +274,21 @@ def generate_card(big5, mbti_type, mbti_map):
     ax1.fill(angles, values, color='#8B5CF6', alpha=0.25)
     ax1.plot(angles, values, color='#8B5CF6', linewidth=3, marker='D')
     ax1.set_ylim(0,10)
-    ax1.set_xticks(angles[:-1])
-    ax1.set_xticklabels(labels, fontsize=10)
-    ax1.grid(True, linestyle='--', alpha=0.6)
+    ax1.set_xticks([])
+    ax1.set_xticklabels([])
+    ax1.grid(True, axis='y', linestyle='--', alpha=0.6)
     ax1.spines['polar'].set_visible(False)
+    
+    for label, angle in zip(labels, angles[:-1]):
+        rotation = np.rad2deg(angle)
+        if 90 <= rotation <= 270: ha = 'right'
+        else: ha = 'left'
+        if 0 <= rotation <= 180: va = 'bottom'
+        else: va = 'top'
+        ax1.text(angle, 11.2, label, ha=ha, va=va, fontsize=10, fontweight='600', color='#4C1D95')
+        
     ax1.text(0, 0, mbti_type, fontsize=24, fontweight='900', color='#5B21B6', ha='center', va='center')
     
-    # 右侧画信息摘要
     ax2 = fig.add_subplot(1, 2, 2)
     ax2.axis('off')
     traits = [f"{k}: {v['score']}/10" for k, v in big5.items()]
@@ -472,7 +456,7 @@ if st.session_state.analysis_done and st.session_state.result:
     mbti_type, mbti_map = compute_mbti_from_big5(st.session_state.result)
     st.subheader(f"🧬 你的 MBTI 倾向：**{mbti_type}**")
     
-    # 2. 显示双图表 (新的组合：左侧 MBTI 雷达图，右侧 大五人格条形图)
+    # 2. 显示双图表
     col1, col2 = st.columns([1, 1.2])
     with col1:
         st.caption("⚡ 四维倾向极坐标 (MBTI)")
